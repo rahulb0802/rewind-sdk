@@ -96,7 +96,7 @@ class SandboxEngine:
         if res.returncode != 0:
             raise RuntimeError(f"Failed to start container: {res.stderr}")
 
-        self._exec_docker_bin(["apk", "add", "--no-cache", "sqlite"])
+        self._exec_docker_bin(["apk", "add", "--no-cache", "sqlite", "python3"])
         self._exec_docker_bin(
             [
                 "mkdir",
@@ -130,13 +130,28 @@ class SandboxEngine:
         self.lowerdirs.append(f"/sandbox/checkpoints/{label}")
 
         try:
-            self._exec_docker_bin(["umount", self.workspace_root])
+            self._exec_docker_bin(["umount", "-l", self.workspace_root])
         except Exception:
             pass
 
         self._exec_docker_bin(["mv", "/sandbox/upper_current", f"/sandbox/checkpoints/{label}"])
         self._exec_docker_bin(["rm", "-rf", "/sandbox/work_current"])
         self._exec_docker_bin(["mkdir", "-p", "/sandbox/upper_current", "/sandbox/work_current"])
+
+        # print("\n" + "="*50)
+        # print(f"ENGINE CHECKPOINT DIAGNOSTICS ({label})")
+        # print("="*50)
+        # try:
+        #     print("1. Active Container Mounts:")
+        #     print(self._exec_docker_bin(["mount"]))
+        #     print("\n2. Contents of /sandbox:")
+        #     print(self._exec_docker_bin(["ls", "-la", "/sandbox"]))
+        #     print("\n3. Contents of /sandbox/checkpoints:")
+        #     print(self._exec_docker_bin(["ls", "-la", "/sandbox/checkpoints"]))
+        # except Exception as dbg_err:
+        #     print(f"Failed to fetch diagnostics: {dbg_err}")
+        # print("="*50 + "\n")
+
         self._exec_docker_bin(self._get_mount_args())
         self._save_metadata()
 
@@ -148,7 +163,7 @@ class SandboxEngine:
         to_discard = self.checkpoint_history[idx + 1 :]
 
         try:
-            self._exec_docker_bin(["umount", self.workspace_root])
+            self._exec_docker_bin(["umount", "-l", self.workspace_root])
         except Exception:
             pass
 
@@ -163,6 +178,23 @@ class SandboxEngine:
         ]
 
         self._exec_docker_bin(["mkdir", "-p", "/sandbox/upper_current", "/sandbox/work_current"])
+
+        # print("\n" + "="*50)
+        # print(f"ENGINE ROLLBACK DIAGNOSTICS ({label})")
+        # print("="*50)
+        # try:
+        #     print("1. Active Container Mounts:")
+        #     print(self._exec_docker_bin(["mount"]))
+        #     print("\n2. Contents of /sandbox:")
+        #     print(self._exec_docker_bin(["ls", "-la", "/sandbox"]))
+        #     print("\n3. Contents of /sandbox/checkpoints:")
+        #     print(self._exec_docker_bin(["ls", "-la", "/sandbox/checkpoints"]))
+        #     print("\n4. Workspace Directory Existence:")
+        #     print(self._exec_docker_bin(["ls", "-la", self.workspace_root]))
+        # except Exception as dbg_err:
+        #     print(f"Failed to fetch diagnostics: {dbg_err}")
+        # print("="*50 + "\n")
+
         self._exec_docker_bin(self._get_mount_args())
         self._save_metadata()
 
@@ -214,3 +246,22 @@ class SandboxEngine:
     def read_file(self, path):
         target = self._workspace_path(path)
         return self._exec_docker_bin(["cat", target], strip_output=False)
+    
+    def commit(self, host_workspace_path):
+        """Streams the sandbox workspace as a tarball and extracts it to the host."""
+        import io
+        import tarfile
+        import subprocess
+
+        # 1. Package the sandbox workspace inside the container and stream it to stdout
+        cmd = ["docker", "exec", self.container_name, "tar", "-C", self.workspace_root, "-cf", "-", "."]
+        res = subprocess.run(cmd, capture_output=True)
+        
+        if res.returncode != 0:
+            raise RuntimeError(f"Failed to archive sandbox files: {res.stderr.decode()}")
+
+        # 2. Extract the tar bytes directly to the host's local workspace folder [1]
+        tar_bytes = res.stdout
+        with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r|") as tar:
+            # On modern Python, we extract safely
+            tar.extractall(path=host_workspace_path)

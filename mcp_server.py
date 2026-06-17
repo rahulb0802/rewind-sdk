@@ -8,7 +8,7 @@ except ImportError:
     print("ERROR: The 'mcp' package is required. Install with: pip install mcp", file=sys.stderr)
     sys.exit(1)
 
-from rewind import RewindSession
+from rewind_sdk import RewindSession
 
 
 mcp = FastMCP("Rewind Sandbox Server")

@@ -3,7 +3,7 @@ import subprocess
 
 import pytest
 
-import rewind
+import rewind_sdk
 
 
 class FakeEngine:
@@ -25,7 +25,7 @@ class FakeEngine:
 
 
 def test_sync_memory_tracks_messages_without_manual_indices():
-    session = rewind.RewindSession(destroy_on_exit=False)
+    session = rewind_sdk.RewindSession(destroy_on_exit=False)
     messages = [
         {"role": "user", "content": "Create a checkpointable state."},
         {"role": "assistant", "content": "State is ready."},
@@ -40,7 +40,7 @@ def test_sync_memory_tracks_messages_without_manual_indices():
 
 def test_declarative_triggers_checkpoint_and_rollback_without_manual_calls():
     engine = FakeEngine()
-    session = rewind.RewindSession(engine=engine, destroy_on_exit=False)
+    session = rewind_sdk.RewindSession(engine=engine, destroy_on_exit=False)
     messages = [
         {"role": "user", "content": "Refactor auth."},
         {"role": "assistant", "content": "Starting."},
@@ -92,7 +92,7 @@ def test_session_lifecycle_restores_filesystem_and_memory(tmp_path):
         {"role": "assistant", "content": "Overwrote it with bad data."},
     ]
 
-    with rewind.session("rewind_pytest_session", workspace=str(workspace)) as session:
+    with rewind_sdk.session("rewind_pytest_session", workspace=str(workspace)) as session:
         assert session.run("cat seed.txt") == "base"
 
         session.write_file("config/settings.txt", "version=1\n")

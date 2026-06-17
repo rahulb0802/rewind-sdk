@@ -100,6 +100,12 @@ class RewindLangGraph:
         self._update_memory(state)
         try:
             for event in self.graph.stream(state, *args, **kwargs):
+                # keeping rewind memory synced as framework makes new steps
+                if isinstance(event, dict) and "messages" in event:
+                    self._update_memory(event)
+                for node_name, node_state in (event.items() if isinstance(event, dict) else []):
+                    if isinstance(node_state, dict) and "messages" in node_state:
+                        self._update_memory({"messages": node_state["messages"]})
                 yield event
         except Exception as exc:
             self.session.on_tool_result(error=exc)

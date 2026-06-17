@@ -32,6 +32,7 @@ class RewindSession:
         engine=None,
         memory=None,
         destroy_on_exit=True,
+        auto_commit=False,
     ):
         self.name = container_name or name
         self.workspace = workspace
@@ -45,15 +46,24 @@ class RewindSession:
         self._message_format = "dict"
         self.last_auto_rollback = None
         self._started = False
+        self.auto_commit = auto_commit
 
     def __enter__(self):
         self.start(force=True)
         return self
 
     def __exit__(self, exc_type, exc, tb):
+        # Only auto-commit if the agent loop finished successfully
+        if exc_type is None and self.auto_commit:
+            try:
+                self.commit()
+            except Exception as e:
+                print(f"Warning: Failed to auto-commit: {e}")
+                
         if self.destroy_on_exit:
             self.destroy()
         return False
+
 
     def start(self, workspace=None, *, force=False):
         if workspace is not None:
@@ -251,6 +261,11 @@ class RewindSession:
             return configured in cmd or "pytest" in cmd or "unittest" in cmd
         joined = " ".join(str(part) for part in cmd)
         return configured in joined or "pytest" in joined or "unittest" in joined
+    
+    def commit(self):
+        """Commits the sandbox workspace state back to the host machine."""
+        self._ensure_ready()
+        self.engine.commit(self.workspace) # delegate to engine
 
 
 def session(name="rewind_sandbox", workspace=".", **kwargs):

@@ -4,7 +4,7 @@ import json
 import os
 import sys
 
-from rewind import RewindSession
+from rewind_sdk import RewindSession
 
 
 EXIT_SUCCESS = 0
