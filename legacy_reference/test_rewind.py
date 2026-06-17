@@ -1,3 +1,5 @@
+"""Legacy reference sequence for the pre-SDK OverlayFS workflow."""
+
 import time
 import os
 import shutil

@@ -1,3 +1,5 @@
+"""Legacy reference sequence for the pre-SDK CLI behavior."""
+
 import subprocess
 import os
 import shutil

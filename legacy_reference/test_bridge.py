@@ -1,3 +1,5 @@
+"""Legacy reference sequence for the pre-SDK brain/filesystem bridge."""
+
 import os
 import shutil
 import json

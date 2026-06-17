@@ -1,3 +1,5 @@
+"""Legacy reference sequence for the pre-SDK SQLite isolation workflow."""
+
 import os
 import shutil
 import sqlite3

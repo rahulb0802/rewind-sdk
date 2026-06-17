@@ -1,0 +1,257 @@
+import os
+import time
+from dataclasses import dataclass
+
+from .adapters.langgraph import dicts_to_messages, infer_message_format, messages_to_dicts
+from .engine import SandboxEngine
+from .memory import MemoryStore
+
+
+@dataclass
+class AutoCheckpointConfig:
+    trigger: str
+    keep_last: int | None = None
+
+
+@dataclass
+class AutoRollbackConfig:
+    events: set[str]
+    to: str = "latest"
+    test_command: str | None = None
+
+
+class RewindSession:
+    """Unified developer-facing API for filesystem and memory time travel."""
+
+    def __init__(
+        self,
+        name="rewind_sandbox",
+        workspace=".",
+        *,
+        container_name=None,
+        engine=None,
+        memory=None,
+        destroy_on_exit=True,
+    ):
+        self.name = container_name or name
+        self.workspace = workspace
+        self.engine = engine or SandboxEngine(container_name=self.name)
+        self.memory = memory or MemoryStore()
+        self.destroy_on_exit = destroy_on_exit
+        self._auto_checkpoint = None
+        self._auto_rollback = None
+        self._auto_counter = 0
+        self._auto_labels = []
+        self._message_format = "dict"
+        self.last_auto_rollback = None
+        self._started = False
+
+    def __enter__(self):
+        self.start(force=True)
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if self.destroy_on_exit:
+            self.destroy()
+        return False
+
+    def start(self, workspace=None, *, force=False):
+        if workspace is not None:
+            self.workspace = workspace
+
+        if not os.path.exists(self.workspace):
+            os.makedirs(self.workspace, exist_ok=True)
+
+        if self.engine.container_exists() and not force:
+            if self.engine.load_metadata():
+                self._started = True
+                return self
+
+        self.engine.init_sandbox(self.workspace)
+        self._started = True
+        return self
+
+    def attach(self):
+        if not self.engine.load_metadata():
+            raise RuntimeError(f"No active sandbox found: {self.name}")
+        self._started = True
+        return self
+
+    def destroy(self):
+        self.engine.destroy_sandbox()
+        self._started = False
+
+    def run(self, cmd):
+        self._ensure_ready()
+        try:
+            return self.engine.run_cmd(cmd)
+        except Exception as exc:
+            event = "test_failure" if self._looks_like_test_command(cmd) else "exception"
+            self._maybe_auto_rollback(event, patch_notes=str(exc))
+            raise
+
+    def run_tests(self, cmd=None):
+        command = cmd or self._default_test_command()
+        try:
+            self._ensure_ready()
+            return self.engine.run_cmd(command)
+        except Exception as exc:
+            self._maybe_auto_rollback("test_failure", patch_notes=str(exc))
+            raise
+
+    def write_file(self, path, content):
+        self._ensure_ready()
+        return self.engine.write_file(path, content)
+
+    def read_file(self, path):
+        self._ensure_ready()
+        return self.engine.read_file(path)
+
+    def sync_memory(self, messages, message_format="auto"):
+        """Track framework-native messages without exposing index bookkeeping."""
+        resolved_format = (
+            infer_message_format(messages) if message_format == "auto" else message_format
+        )
+        self._message_format = resolved_format
+        self.memory.update(messages_to_dicts(messages))
+        return self.get_messages(message_format=resolved_format)
+
+    def get_messages(self, message_format="auto"):
+        resolved_format = self._message_format if message_format == "auto" else message_format
+        return dicts_to_messages(self.memory.get_messages(), message_format=resolved_format)
+
+    def checkpoint(self, label, messages=None):
+        self._ensure_ready()
+        if messages is not None:
+            self.sync_memory(messages)
+        self.engine.create_checkpoint(label)
+        self.memory.snapshot(label)
+        return label
+
+    def rollback(self, label="latest", patch_notes=None, message_format="auto"):
+        self._ensure_ready()
+        resolved_label = self._resolve_label(label)
+        self.engine.rollback_to_checkpoint(resolved_label)
+        messages = self.memory.rollback(resolved_label, patch_notes=patch_notes)
+        resolved_format = self._message_format if message_format == "auto" else message_format
+        return dicts_to_messages(messages, message_format=resolved_format)
+
+    def status(self):
+        self._ensure_ready()
+        status = self.engine.get_status()
+        status["memory_checkpoints"] = self.memory.checkpoints()
+        return status
+
+    def auto_checkpoint(self, trigger="before_tool_call", keep_last=None):
+        self._auto_checkpoint = AutoCheckpointConfig(trigger=trigger, keep_last=keep_last)
+        return self
+
+    def auto_rollback(self, *events, on=None, to="latest", test_command=None):
+        selected_events = self._normalize_rollback_events(events, on)
+        self._auto_rollback = AutoRollbackConfig(
+            events=selected_events,
+            to=to,
+            test_command=test_command,
+        )
+        return self
+
+    def on_tool_call(self, messages=None, tool_name=None):
+        if messages is not None:
+            self.sync_memory(messages)
+
+        if self._auto_checkpoint and self._auto_checkpoint.trigger == "before_tool_call":
+            label = self._next_auto_label(tool_name)
+            self.checkpoint(label)
+            self._remember_auto_label(label)
+            return label
+        return None
+
+    def on_tool_result(self, messages=None, error=None):
+        if messages is not None:
+            self.sync_memory(messages)
+
+        if (
+            error is not None
+            and self._auto_rollback
+            and "exception" in self._auto_rollback.events
+        ):
+            return self._maybe_auto_rollback("exception", patch_notes=str(error))
+        return None
+
+    def _ensure_ready(self):
+        if not self._started and not self.engine.load_metadata():
+            raise RuntimeError(
+                f"Session '{self.name}' is not started. Use 'with rewind.session(...)' "
+                "or call session.start()."
+            )
+        self._started = True
+
+    def _resolve_label(self, label):
+        if label != "latest":
+            return label
+        if self._auto_labels:
+            return self._auto_labels[-1]
+        memory_label = self.memory.latest_label()
+        if memory_label:
+            return memory_label
+        if self.engine.checkpoint_history:
+            return self.engine.checkpoint_history[-1]
+        raise ValueError("No checkpoint is available.")
+
+    def _next_auto_label(self, tool_name=None):
+        self._auto_counter += 1
+        clean_tool = "".join(ch if ch.isalnum() or ch in ("_", "-") else "_" for ch in (tool_name or "tool"))
+        return f"auto_{self._auto_counter:04d}_{clean_tool}_{int(time.time() * 1000)}"
+
+    def _remember_auto_label(self, label):
+        self._auto_labels.append(label)
+        # OverlayFS layers remain physically present for rollback correctness; this
+        # retention window controls only the session's convenience label history.
+        if self._auto_checkpoint and self._auto_checkpoint.keep_last:
+            self._auto_labels = self._auto_labels[-self._auto_checkpoint.keep_last :]
+
+    def _normalize_rollback_events(self, events, on):
+        selected = []
+        if events:
+            selected.extend(events)
+        if on is not None:
+            if isinstance(on, str):
+                selected.append(on)
+            else:
+                selected.extend(on)
+        if not selected:
+            selected.append("exception")
+        return {str(event) for event in selected}
+
+    def _maybe_auto_rollback(self, event, patch_notes=None):
+        if not self._auto_rollback or event not in self._auto_rollback.events:
+            return None
+        try:
+            messages = self.rollback(
+                self._auto_rollback.to,
+                patch_notes=patch_notes or f"Automatic rollback triggered by {event}.",
+            )
+        except ValueError:
+            return None
+        self.last_auto_rollback = {
+            "event": event,
+            "to": self._auto_rollback.to,
+            "messages": messages,
+        }
+        return messages
+
+    def _default_test_command(self):
+        if self._auto_rollback and self._auto_rollback.test_command:
+            return self._auto_rollback.test_command
+        return "pytest"
+
+    def _looks_like_test_command(self, cmd):
+        configured = self._default_test_command()
+        if isinstance(cmd, str):
+            return configured in cmd or "pytest" in cmd or "unittest" in cmd
+        joined = " ".join(str(part) for part in cmd)
+        return configured in joined or "pytest" in joined or "unittest" in joined
+
+
+def session(name="rewind_sandbox", workspace=".", **kwargs):
+    return RewindSession(name=name, workspace=workspace, **kwargs)
