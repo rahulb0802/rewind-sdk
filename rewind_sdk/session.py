@@ -1,5 +1,6 @@
 import os
 import time
+import warnings
 from dataclasses import dataclass
 
 from .adapters.langgraph import dicts_to_messages, infer_message_format, messages_to_dicts
@@ -59,6 +60,11 @@ class RewindSession:
                 self.commit()
             except Exception as e:
                 print(f"Warning: Failed to auto-commit: {e}")
+        elif exc_type is None and not self.auto_commit:
+            warnings.warn(
+                f"Session '{self.name}' exited without auto_commit; no changes persisted to '{self.workspace}'.",
+                stacklevel=2,
+            )
                 
         if self.destroy_on_exit:
             self.destroy()
@@ -157,6 +163,13 @@ class RewindSession:
         return self
 
     def auto_rollback(self, *events, on=None, to="latest", test_command=None):
+        if on is not None:
+            warnings.warn(
+                "auto_rollback(on=...) is deprecated; pass event names positionally, "
+                'e.g. auto_rollback("exception", "test_failure").',
+                DeprecationWarning,
+                stacklevel=2,
+            )
         selected_events = self._normalize_rollback_events(events, on)
         self._auto_rollback = AutoRollbackConfig(
             events=selected_events,

@@ -148,7 +148,7 @@ def configure_auto_rollback(
             events = [events]
         if not isinstance(events, list):
             return _error("events_json must decode to a list or string.")
-        session.auto_rollback(on=events, to=to, test_command=test_command)
+        session.auto_rollback(*events, to=to, test_command=test_command)
         return _as_json({"events": events, "to": to, "test_command": test_command})
     except Exception as exc:
         return _error(str(exc))

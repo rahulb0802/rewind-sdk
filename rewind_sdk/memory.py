@@ -27,10 +27,12 @@ class MemoryStore:
         index = self._snapshots[label]
 
         # prevent dangling tool call errors
-        if index > 0:
+        while index > 0:
             last_msg = self._messages[index - 1]
             if last_msg.get("role") == "assistant" and last_msg.get("tool_calls"):
-                index -= 1 # Truncate the assistant message as well
+                index -= 1
+            else:
+                break
 
         self._messages = self._messages[:index]
 
