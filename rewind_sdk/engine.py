@@ -96,7 +96,7 @@ class SandboxEngine:
         if res.returncode != 0:
             raise RuntimeError(f"Failed to start container: {res.stderr}")
 
-        self._exec_docker_bin(["apk", "add", "--no-cache", "sqlite", "python3"])
+        self._exec_docker_bin(["apk", "add", "--no-cache", "python3", "py3-pip"])
         self._exec_docker_bin(
             [
                 "mkdir",

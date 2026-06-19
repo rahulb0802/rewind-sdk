@@ -162,7 +162,32 @@ class RewindSession:
         self._auto_checkpoint = AutoCheckpointConfig(trigger=trigger, keep_last=keep_last)
         return self
 
-    def auto_rollback(self, *events, on=None, to="latest", test_command=None):
+    def auto_rollback(self, *events, on=None, to=None, test_command=None):
+        """Configure automatic rollback behavior on specified events.
+        IMPORTANT: 
+        `to` should almost always be an explicit checkpoint label you
+        created with `session.checkpoint(...)` BEFORE the operation began
+        (for example to="pre_migration"), not the default "latest" auto-checkpoint.
+
+        Auto-checkpoints are taken immediately BEFORE each tool call, which means
+        the most recent auto-checkpoint can already contain the very change that
+        caused the failure you're rolling back from. Passing to="latest" rolls
+        back to that checkpoint.
+
+        Use to="latest" only if you understand this and specifically want "undo
+        just the last tool call.
+        """
+        if to is None:
+            to = "latest"
+            warnings.warn(
+                'auto_rollback() called without an explicit `to=` checkpoint label. '
+                'Defaulting to to="latest", which rolls back to the most recent '
+                'auto-checkpoint; this may already contain the change that caused '
+                'the failure. Pass an explicit checkpoint label (for example, '
+                'to="my_known_good_label") created before the risky operation for '
+                'correct recovery behavior.',
+                stacklevel=2,
+            )
         if on is not None:
             warnings.warn(
                 "auto_rollback(on=...) is deprecated; pass event names positionally, "
@@ -255,6 +280,13 @@ class RewindSession:
                 patch_notes=patch_notes or f"Automatic rollback triggered by {event}.",
             )
         except ValueError:
+            warnings.warn(
+                f"Auto-rollback was triggered by '{event}' but no checkpoint exists yet "
+                "to roll back to. The error was not recovered; it will propagate normally. "
+                "Call session.checkpoint(...) before this point if you want auto-rollback "
+                "to be able to act here.",
+                stacklevel=2,
+            )
             return None
         self.last_auto_rollback = {
             "event": event,

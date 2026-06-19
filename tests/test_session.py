@@ -122,12 +122,12 @@ def test_auto_rollback_silently_noops_when_no_checkpoint_exists():
     session = rewind_sdk.RewindSession(engine=engine, destroy_on_exit=False)
 
     session.auto_rollback("exception")
-    # Deliberately: no checkpoint() or on_tool_call() before this point.
+    # no checkpoint() or on_tool_call() before this point
 
     with pytest.raises(RuntimeError):
         session.run("some_command")  # FakeEngine.run_cmd always raises
 
-    # The "self-healing" rollback silently did nothing:
+    # The "self-healing" rollback does nothing
     assert session.last_auto_rollback is None
     assert engine.rolled_back_to is None
 
@@ -137,7 +137,7 @@ def test_rollback_truncation_misses_nested_dangling_tool_call():
     Edge case: memory.MemoryStore.rollback() only looks one message back
     to drop a dangling tool-call message. If a checkpoint is
     taken while an earlier tool-call message is still dangling underneath
-    a more recent tool-call message (for example a nested tool call),
+    a more recent tool-call (for example a nested tool call),
     only the most recent one gets truncated, so make sure this doesn't happen (while loop fix should work)
     """
     engine = FakeEngine()
@@ -242,7 +242,7 @@ def test_rollback_truncation_may_remove_already_resolved_tool_call():
         "message follows it."
     )
 
-    # tool_a's matching tool-response should also still be there
+    # tool_a's matching tool and response should also still be there
     tool_a_response_present = any(
         m.get("role") == "tool" and m.get("metadata") == "call_a" for m in resumed
     )
