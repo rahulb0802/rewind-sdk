@@ -197,7 +197,7 @@ Add `--json` for machine-readable output and `--quiet` to suppress stderr loggin
 
 ## Known Limitations
 
-Being direct about these now is better than someone finding them the hard way:
+Being direct and transparent (as this is still an early prototype):
 
 - **Containers run `--privileged`.** This is required for the current OverlayFS mounting approach, but it means the sandbox container has broad host-kernel access — it is not a hardened security boundary against a determined adversary. Treat it as protection against an agent's *accidental* mistakes (bad refactors, destructive commands), not as isolation against malicious code.
 - **One framework integration.** Only LangGraph is supported today. The adapter pattern (`messages_to_dicts` / `dicts_to_messages`) is framework-agnostic in design, but no LangChain-only or CrewAI adapter exists yet.
@@ -206,7 +206,7 @@ Being direct about these now is better than someone finding them the hard way:
 - **Only two auto-rollback events implemented:** `exception` and `test_failure`. Anything else needs a manual `sess.rollback(...)` call.
 - **`keep_last` doesn't free disk space.** It trims label bookkeeping, not the underlying checkpoint layers.
 - **Default behavior discards work.** With default arguments (`destroy_on_exit=True`, `auto_commit=False`), exiting a `with session(...)` block destroys the container and writes nothing back to the host. Pass `auto_commit=True` explicitly if you want results persisted.
-- **Untested against nested/concurrent tool-call crashes.** The dangling-tool-call cleanup handles the single-message case (one assistant tool-call message immediately before the checkpoint). Behavior under deeper crash scenarios hasn't been verified.
+- **Untested against multi-agent/complex tool calls.** The dangling-tool-call cleanup handles the single-message case (one assistant tool-call message immediately before the checkpoint). Behavior under deeper crash scenarios hasn't been verified.
 
 ---
 
