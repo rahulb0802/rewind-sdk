@@ -4,18 +4,25 @@ import subprocess
 import pytest
 
 import rewind_sdk
+from rewind_sdk.verification import Verifier
 
 
 class FakeEngine:
     def __init__(self):
         self.checkpoint_history = []
         self.rolled_back_to = None
+        self._stdout = '{"status": "fail", "errors": ["pytest failed"]}'
+        self._stderr = ""
+        self._returncode = 1
 
     def load_metadata(self):
         return True
 
     def run_cmd(self, cmd):
         raise RuntimeError(f"Command failed: {cmd}")
+
+    def run_cmd_capturing(self, cmd, timeout=None):
+        return self._stdout, self._stderr, self._returncode
 
     def create_checkpoint(self, label):
         self.checkpoint_history.append(label)
@@ -50,7 +57,12 @@ def test_declarative_triggers_checkpoint_and_rollback_without_manual_calls():
     ]
 
     session.auto_checkpoint(trigger="before_tool_call", keep_last=2)
-    session.auto_rollback("test_failure", "exception", to="latest", test_command="pytest")
+    session.auto_rollback(
+        "test_failure",
+        "exception",
+        to="latest",
+        verifier=Verifier(command="pytest", retries=0, retry_delay=0.0, timeout=5.0),
+    )
 
     session.on_tool_call(messages=messages, tool_name="read_file")
     session.on_tool_call(messages=messages, tool_name="write_file")

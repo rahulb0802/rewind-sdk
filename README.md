@@ -145,11 +145,20 @@ Auto-checkpoints only fire where you explicitly call `sess.on_tool_call(...)`, t
 ### Auto-rollback
 
 ```python
+from rewind_sdk import Verifier
+
 sess.checkpoint("known_good")  # create this BEFORE risky work begins
-sess.auto_rollback("exception", "test_failure", to="known_good", test_command="pytest")
+sess.auto_rollback(
+    "exception",
+    "test_failure",
+    to="known_good",
+    verifier=Verifier(command="pytest", retries=2, timeout=30.0),
+)
 ```
 
-Two events are actually implemented: `"exception"` and `"test_failure"`. Both are checked inside `run()`, `run_tests()`, and inside the LangGraph adapter's `invoke`/`stream` exception handling. There is no `"validation_error"` or `"timeout"` event in the current code, despite what you may see suggested elsewhere. If you need either, you'll need to catch it yourself and call `sess.rollback(...)` directly.
+`"test_failure"` rollback requires a `Verifier` whose command prints JSON
+(`{"status": "pass"|"fail"|"unknown", ...}`) to stdout. `"exception"` fires
+immediate rollback on `run()` errors and `on_tool_result(error=...)`.
 
 > **Important:** `to=` should almost always be an explicit checkpoint label
 > created with `sess.checkpoint(...)` *before* the risky operation, not the
@@ -252,7 +261,7 @@ session(name="rewind_sandbox", workspace=".", *, container_name=None,
 sess.write_file(path, content)
 sess.read_file(path) -> str
 sess.run(cmd) -> str                  # raises RuntimeError on non-zero exit
-sess.run_tests(cmd=None) -> str       # defaults to "pytest"
+sess.run_tests(cmd=None) -> str       # uses verifier.command when cmd omitted
 
 sess.sync_memory(messages, message_format="auto")
 sess.get_messages(message_format="auto") -> list
@@ -261,7 +270,7 @@ sess.checkpoint(label, messages=None) -> str
 sess.rollback(label="latest", patch_notes=None, message_format="auto") -> list
 
 sess.auto_checkpoint(trigger="before_tool_call", keep_last=None)
-sess.auto_rollback(*events, to=None, test_command=None)
+sess.auto_rollback(*events, to=None, verifier=None)
 
 sess.on_tool_call(messages=None, tool_name=None)
 sess.on_tool_result(messages=None, error=None)
