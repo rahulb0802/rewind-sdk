@@ -213,14 +213,14 @@ class SandboxEngine:
         subprocess.run(["docker", "rm", "-f", self.container_name], capture_output=True)
         self.reset_state()
 
-    def run_cmd_capturing(self, cmd_args):
+    def run_cmd_capturing(self, cmd_args, timeout=None):
         """Run a command in the workspace and return (stdout, stderr, returncode) without raising."""
         base_cmd = ["docker", "exec", "-w", self.workspace_root, self.container_name]
         if isinstance(cmd_args, str):
             executable_cmd = base_cmd + ["sh", "-c", cmd_args]
         else:
             executable_cmd = base_cmd + list(cmd_args)
-        res = subprocess.run(executable_cmd, capture_output=True, text=True)
+        res = subprocess.run(executable_cmd, capture_output=True, text=True, timeout=timeout)
         return res.stdout, res.stderr, res.returncode
 
     def run_cmd(self, cmd_args):

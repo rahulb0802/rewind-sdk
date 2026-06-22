@@ -1,4 +1,5 @@
 import os
+import subprocess
 import time
 import warnings
 from dataclasses import dataclass
@@ -12,8 +13,10 @@ from .verification import (
     EscalationResolution,
     VerificationHaltError,
     VerificationLedger,
+    VerificationResult,
     VerificationStatus,
     VerifierConfig,
+    parse_verifier_output,
     run_verifier,
     stdin_escalation_handler,
 )
@@ -116,6 +119,8 @@ class RewindSession:
 
     def run(self, cmd):
         self._ensure_ready()
+        if self._auto_rollback and self._auto_rollback.verifier and self._looks_like_test_command(cmd):
+            return self._run_verified_container_cmd(cmd, "test_failure")
         try:
             return self.engine.run_cmd(cmd)
         except Exception as exc:
@@ -125,8 +130,10 @@ class RewindSession:
 
     def run_tests(self, cmd=None):
         command = cmd or self._default_test_command()
+        self._ensure_ready()
+        if self._auto_rollback and self._auto_rollback.verifier:
+            return self._run_verified_container_cmd(command, "test_failure")
         try:
-            self._ensure_ready()
             return self.engine.run_cmd(command)
         except Exception as exc:
             self._maybe_auto_rollback("test_failure", patch_notes=str(exc))
@@ -288,7 +295,7 @@ class RewindSession:
             selected.append("exception")
         return {str(event) for event in selected}
 
-    def _maybe_auto_rollback(self, event, patch_notes=None):
+    def _maybe_auto_rollback(self, event, patch_notes=None, *, _pre_result=None, _pre_attempts=1):
         if not self._auto_rollback or event not in self._auto_rollback.events:
             return None
 
@@ -297,7 +304,10 @@ class RewindSession:
             # Backward-compatible path: no verifier configured, rollback immediately.
             return self._execute_rollback(event, patch_notes)
 
-        result, attempts = self._run_verifier_with_retries(verifier)
+        if _pre_result is not None:
+            result, attempts = _pre_result, _pre_attempts
+        else:
+            result, attempts = self._run_verifier_with_retries(verifier)
 
         try:
             checkpoint_label = self._resolve_label(self._auto_rollback.to)
@@ -347,6 +357,66 @@ class RewindSession:
                     "still unknown. Escalating to human decision point..."
                 )
         return result, total
+
+    def _run_container_verifier_with_retries(self, cmd):
+        """Run a command in-container, parse JSON stdout, retry on UNKNOWN.
+
+        Returns (VerificationResult, total_attempts, stdout).
+        """
+        config = self._auto_rollback.verifier
+        total = config.retries + 1
+        result = None
+        stdout = ""
+        for attempt in range(1, total + 1):
+            try:
+                stdout, stderr, _returncode = self.engine.run_cmd_capturing(
+                    cmd, timeout=config.timeout
+                )
+            except subprocess.TimeoutExpired:
+                result = VerificationResult(
+                    status=VerificationStatus.UNKNOWN,
+                    raw_output={},
+                    notes=f"Verifier timed out after {config.timeout}s",
+                )
+            else:
+                result = parse_verifier_output(stdout, stderr)
+
+            if result.status != VerificationStatus.UNKNOWN:
+                return result, attempt, stdout
+            if attempt < total:
+                print(
+                    f"[rewind] Verifier returned unknown "
+                    f"(attempt {attempt}/{total}), retrying in {config.retry_delay}s..."
+                )
+                time.sleep(config.retry_delay)
+            else:
+                print(
+                    f"[rewind] Verifier exhausted {config.retries} retries, "
+                    "still unknown. Escalating to human decision point..."
+                )
+        return result, total, stdout
+
+    def _run_verified_container_cmd(self, cmd, event):
+        """Run cmd in-container with JSON verifier semantics; raise on FAIL/UNKNOWN."""
+        result, attempts, stdout = self._run_container_verifier_with_retries(cmd)
+        if result.status == VerificationStatus.PASS:
+            return stdout.strip()
+
+        patch_notes = result.notes or f"Verifier returned {result.status.value}"
+        try:
+            self._maybe_auto_rollback(
+                event,
+                patch_notes=patch_notes,
+                _pre_result=result,
+                _pre_attempts=attempts,
+            )
+        except VerificationHaltError:
+            raise
+        raise RuntimeError(
+            f"Command failed: {cmd}\n"
+            f"Verifier status: {result.status.value}\n"
+            f"Details: {patch_notes}"
+        )
 
     def _execute_rollback(self, event, patch_notes, result=None):
         """Perform the actual filesystem + memory rollback and update session state."""

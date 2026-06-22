@@ -9,6 +9,7 @@ from .verification import (
     VerificationResult,
     VerificationStatus,
     VerifierConfig,
+    parse_verifier_output,
     stdin_escalation_handler,
     stop_escalation_handler,
 )
@@ -25,6 +26,7 @@ __all__ = [
     "VerificationResult",
     "VerificationStatus",
     "VerifierConfig",
+    "parse_verifier_output",
     "stdin_escalation_handler",
     "stop_escalation_handler",
 ]

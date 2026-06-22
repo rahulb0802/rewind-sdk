@@ -208,13 +208,38 @@ class VerificationHaltError(Exception):
 # Verifier execution
 # ---------------------------------------------------------------------------
 
-def run_verifier(config: VerifierConfig) -> VerificationResult:
+def parse_verifier_output(stdout: str, stderr: str) -> VerificationResult:
     """
-    Execute a verifier command and parse its structured JSON output.
+    Parse structured JSON verifier output from captured stdout/stderr.
 
     Contract: the verifier prints a JSON object to stdout that contains at
     least a ``status`` field ("pass", "fail", or "unknown").  Any other fields
     are passed through as-is in ``raw_output`` without schema validation.
+
+    Returns UNKNOWN when stdout cannot be parsed as a JSON object or the
+    ``status`` field is missing or unrecognised.
+    """
+    try:
+        data = json.loads(stdout)
+        if not isinstance(data, dict):
+            raise ValueError("stdout is not a JSON object")
+        status_str = data.get("status", "")
+        try:
+            status = VerificationStatus(status_str)
+        except ValueError:
+            raise ValueError(f"Unrecognised status value: {status_str!r}")
+        return VerificationResult(status=status, raw_output=data)
+    except (json.JSONDecodeError, ValueError) as exc:
+        return VerificationResult(
+            status=VerificationStatus.UNKNOWN,
+            raw_output={"raw_stdout": stdout, "raw_stderr": stderr},
+            notes=f"Could not parse verifier output: {exc}",
+        )
+
+
+def run_verifier(config: VerifierConfig) -> VerificationResult:
+    """
+    Execute a verifier command and parse its structured JSON output.
 
     Returns UNKNOWN for any of:
     - the process crashes or cannot be started
@@ -244,22 +269,7 @@ def run_verifier(config: VerifierConfig) -> VerificationResult:
             notes=f"Verifier failed to start: {exc}",
         )
 
-    try:
-        data = json.loads(res.stdout)
-        if not isinstance(data, dict):
-            raise ValueError("stdout is not a JSON object")
-        status_str = data.get("status", "")
-        try:
-            status = VerificationStatus(status_str)
-        except ValueError:
-            raise ValueError(f"Unrecognised status value: {status_str!r}")
-        return VerificationResult(status=status, raw_output=data)
-    except (json.JSONDecodeError, ValueError) as exc:
-        return VerificationResult(
-            status=VerificationStatus.UNKNOWN,
-            raw_output={"raw_stdout": res.stdout, "raw_stderr": res.stderr},
-            notes=f"Could not parse verifier output: {exc}",
-        )
+    return parse_verifier_output(res.stdout, res.stderr)
 
 
 # ---------------------------------------------------------------------------
