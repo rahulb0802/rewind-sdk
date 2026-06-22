@@ -213,21 +213,24 @@ class SandboxEngine:
         subprocess.run(["docker", "rm", "-f", self.container_name], capture_output=True)
         self.reset_state()
 
-    def run_cmd(self, cmd_args):
-        """Accepts a shell string or an argv list for execution in the workspace."""
+    def run_cmd_capturing(self, cmd_args):
+        """Run a command in the workspace and return (stdout, stderr, returncode) without raising."""
         base_cmd = ["docker", "exec", "-w", self.workspace_root, self.container_name]
-
         if isinstance(cmd_args, str):
             executable_cmd = base_cmd + ["sh", "-c", cmd_args]
         else:
             executable_cmd = base_cmd + list(cmd_args)
-
         res = subprocess.run(executable_cmd, capture_output=True, text=True)
-        if res.returncode != 0:
+        return res.stdout, res.stderr, res.returncode
+
+    def run_cmd(self, cmd_args):
+        """Accepts a shell string or an argv list for execution in the workspace."""
+        stdout, stderr, returncode = self.run_cmd_capturing(cmd_args)
+        if returncode != 0:
             raise RuntimeError(
-                f"Command failed: {cmd_args}\nStderr: {res.stderr}\nStdout: {res.stdout}"
+                f"Command failed: {cmd_args}\nStderr: {stderr}\nStdout: {stdout}"
             )
-        return res.stdout.strip()
+        return stdout.strip()
 
     def _workspace_path(self, path):
         raw = str(path).replace("\\", "/")
