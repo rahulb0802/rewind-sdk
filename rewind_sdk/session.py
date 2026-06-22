@@ -373,6 +373,11 @@ class RewindSession:
         """Run cmd in-container with JSON verifier semantics; raise on FAIL/UNKNOWN."""
         result, attempts, stdout = self._run_container_verifier_with_retries(cmd)
         if result.status == VerificationStatus.PASS:
+            self._maybe_auto_rollback(
+                event,
+                _pre_result=result,
+                _pre_attempts=attempts,
+            )
             return stdout.strip()
 
         patch_notes = result.notes or f"Verifier returned {result.status.value}"
