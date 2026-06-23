@@ -158,7 +158,10 @@ sess.auto_rollback(
 
 `"test_failure"` rollback requires a `Verifier` whose command prints JSON
 (`{"status": "pass"|"fail"|"unknown", ...}`) to stdout. `"exception"` fires
-immediate rollback on `run()` errors and `on_tool_result(error=...)`.
+rollback on `run()` / `run_tests()` errors and on failures inside
+`@session.tool`-decorated tools. For decorated tools, rollback is scoped per
+tool via `rollback_on_error` (see below); only tools with
+`rollback_on_error=True` (the default) participate.
 
 > **Important:** `to=` should almost always be an explicit checkpoint label
 > created with `sess.checkpoint(...)` *before* the risky operation, not the
@@ -171,6 +174,34 @@ immediate rollback on `run()` errors and `on_tool_result(error=...)`.
 if sess.last_auto_rollback:
     print(sess.last_auto_rollback["event"], sess.last_auto_rollback["to"])
 ```
+
+### `@session.tool` decorator
+
+The `@session.tool` decorator wraps a function as a LangChain-compatible tool with
+automatic `on_tool_call()` bookkeeping. When a tool raises `RuntimeError`, the
+decorator converts it to an error string the LLM can read; if a rollback fired,
+the string includes a `[REWIND]` notice naming the checkpoint that was restored.
+
+```python
+@sandbox.tool(rollback_on_error=False)
+def run_sql(query: str) -> str:
+    """Read-only query — failure should not roll back filesystem changes."""
+    return sandbox.run(f"sqlite3 db.sqlite '{query}'")
+
+@sandbox.tool(rollback_on_error=True)  # default; can be omitted
+def run_script(path: str) -> str:
+    """State-changing script — failure rolls back to the last checkpoint."""
+    return sandbox.run(f"python3 {path}")
+```
+
+`rollback_on_error` controls whether `"exception"` auto-rollback applies to
+failures inside that tool:
+
+- **`rollback_on_error=True`** (default) — failures (including from `sandbox.run()`
+  inside the tool) trigger auto-rollback when `"exception"` is configured.
+- **`rollback_on_error=False`** — suppresses auto-rollback for that tool; use for
+  read-only or side-effect-free operations where a failure should not discard
+  other work in the sandbox.
 
 ---
 
@@ -245,7 +276,7 @@ Being direct and transparent (as this is still an early prototype):
 - **One framework integration.** Only LangGraph is supported today. The adapter pattern (`messages_to_dicts` / `dicts_to_messages`) is framework-agnostic in design, but no LangChain-only or CrewAI adapter exists yet.
 - **No automatic concurrency control inside the SDK.** If you call sandbox methods from multiple threads, you need your own lock (see the LangGraph example above); the SDK does not serialize for you.
 - **Auto-checkpoint requires manual wiring.** `on_tool_call()` needs to be called from your own tool code; it isn't injected automatically into arbitrary agent frameworks.
-- **Only two auto-rollback events implemented:** `exception` and `test_failure`. Anything else needs a manual `sess.rollback(...)` call.
+- **Exception rollback is opt-in per tool.** With `@session.tool`, you choose per tool whether failures trigger `"exception"` rollback via `rollback_on_error`. Read-only tools should set `rollback_on_error=False` so a query failure does not roll back unrelated filesystem changes. Outside decorated tools, `sess.run()` still rolls back on failure when configured.
 - **`keep_last` doesn't free disk space.** It trims label bookkeeping, not the underlying checkpoint layers.
 - **Default behavior discards work.** With default arguments (`destroy_on_exit=True`, `auto_commit=False`), exiting a `with session(...)` block destroys the container and writes nothing back to the host. Pass `auto_commit=True` explicitly if you want results persisted.
 - **Untested against multi-agent/complex tool calls.** The dangling-tool-call cleanup handles the single-message case (one assistant tool-call message immediately before the checkpoint). Behavior under deeper crash scenarios hasn't been verified.
@@ -271,6 +302,8 @@ sess.rollback(label="latest", patch_notes=None, message_format="auto") -> list
 
 sess.auto_checkpoint(trigger="before_tool_call", keep_last=None)
 sess.auto_rollback(*events, to=None, verifier=None)
+
+sess.tool(fn=None, *, name=None, rollback_on_error=True)  # decorator
 
 sess.on_tool_call(messages=None, tool_name=None)
 sess.on_tool_result(messages=None, error=None)
