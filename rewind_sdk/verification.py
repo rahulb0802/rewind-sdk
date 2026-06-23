@@ -236,6 +236,20 @@ def parse_verifier_output(stdout: str, stderr: str) -> VerificationResult:
         )
 
 
+def format_verification_result(result: VerificationResult) -> str:
+    """Return a human-readable summary from a VerificationResult."""
+    data = result.raw_output
+    if result.status == VerificationStatus.PASS:
+        return data.get("summary") or data.get("message") or "Verification passed."
+    if result.status == VerificationStatus.FAIL:
+        summary = data.get("summary", "Verification failed")
+        errors = data.get("errors", [])
+        if errors:
+            return summary + ":\n" + "\n".join(f"  - {e}" for e in errors)
+        return summary
+    return result.notes or "Verifier returned unknown status."
+
+
 # ---------------------------------------------------------------------------
 # Built-in escalation handlers
 # ---------------------------------------------------------------------------
