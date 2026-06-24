@@ -9,6 +9,10 @@
 > **Status:** early prototype. The core engine works and is tested; the framework integration surface is currently LangGraph-only. Treat this as a v0 you can build against, not a finished product. See [Limitations](#known-limitations) before you rely on it.
 
 ---
+## Demo
+<img width="1175" height="694" alt="rewind_demo_new" src="https://github.com/user-attachments/assets/238bb2cb-fe9f-4364-93ac-150ee13fe5ea" />
+
+---
 
 ## The Problem
 
