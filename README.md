@@ -6,8 +6,6 @@
 [![PyPI](https://img.shields.io/pypi/v/rewind-sdk.svg)](https://pypi.org/project/rewind-sdk/)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-brightgreen.svg)](https://www.python.org/downloads/)
 
-> **Status:** early prototype. The core engine works and is tested; the framework integration surface is currently LangGraph-only. Treat this as a v0 you can build against, not a finished product. See [Limitations](#known-limitations) before you rely on it.
-
 ---
 ## Demo
 <img width="1175" height="694" alt="rewind_demo_new" src="https://github.com/user-attachments/assets/238bb2cb-fe9f-4364-93ac-150ee13fe5ea" />
