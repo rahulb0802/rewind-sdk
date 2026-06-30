@@ -510,7 +510,7 @@ from rewind_sdk import (
 
 Built by a solo developer. Feedback and bug reports welcome.
 
-**Email:** rewind.sdk.dev@protonmail.com
+**Email:** rewind.sdk.dev@protonmail.com <br>
 **GitHub Issues:** https://github.com/rahulb0802/rewind-sdk/issues
 
 ## License
