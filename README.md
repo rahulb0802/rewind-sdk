@@ -28,30 +28,18 @@ Rewind addresses both by tying filesystem snapshots and conversation history to 
 Rewind boots an Alpine Linux Docker container, mounts your host workspace into it **read-only**, and gives the agent a writable OverlayFS layer to work in. Checkpointing is a layer-stacking operation (fast, with no file copying), and rollback discards layers back to a chosen point. Separately, it keeps a parallel in-memory record of your conversation messages, snapshotted at the same checkpoint label, so a filesystem rollback and a memory rollback always happen together via one call.
 
 ```python
-from rewind_sdk import session, Verifier
+from rewind_sdk import session
 
-GOOD = "def authenticate(user, pw):\n    return user == 'admin' and pw == 'correct-horse'\n"
-BROKEN = "def authenticate(user, pw):\n    return user == 'admin' and pw ==\n"  # syntax error
-
-with session("demo", workspace="./demo_workspace", auto_commit=True) as sess:
-    sess.write_file("auth.py", GOOD)
+with session("agent", workspace="./src", auto_commit=True) as sess:
     sess.checkpoint("stable")
 
-    sess.auto_rollback("exception", "test_failure", to="stable",
-                        verifier=Verifier(command="python3 -m py_compile auth.py"))
-
-    # simulate an agent mid-tool-call, then a broken write
-    dangling_msg = [{"role": "assistant", "content": "", "tool_calls": [{"id": "1"}]}]
-    sess.on_tool_call(dangling_msg, tool_name="write_file")
-    sess.write_file("auth.py", BROKEN)
-
+    sess.write_file("auth.py", new_implementation)
     try:
-        sess.run_tests()  # fails -> auto_rollback fires here, no manual call
+        sess.run_tests("pytest")
     except RuntimeError:
-        pass
-
-    print("File reverted:", sess.read_file("auth.py") == GOOD)      # True
-    print("Dangling msg dropped:", sess.get_messages() == [])       # True
+        sess.rollback("stable")
+    # If this block exits without raising and auto_commit=True,
+    # the workspace is streamed back to ./src on the host.
 ```
 
 **Filesystem and message history are restored together, with one call.** This is the mechanic everything in this SDK is built around, making that pairing convenient.
@@ -110,32 +98,43 @@ pip install -e .
 ## Quick Start
 
 ```python
-from rewind_sdk import session
-
-with session("agent", workspace="./workspace") as sess:
-    sess.write_file("script.py", "print('hello')")
-    output = sess.run("python3 script.py")
-    print(output)
-# By default destroy_on_exit=True and auto_commit=False:
-# the container is torn down on exit and nothing is written back
-# to ./workspace. Pass auto_commit=True if you want the result persisted.
-```
-
-### Checkpoint and roll back
-
-```python
 from rewind_sdk import session, Verifier
 
-with session("agent", workspace="./src", auto_commit=True) as sess:
+GOOD = "def authenticate(user, pw):\n    return user == 'admin' and pw == 'correct-horse'\n"
+BROKEN = "def authenticate(user, pw):\n    return user == 'admin' and pw ==\n"  # syntax error
+
+# verifier contract for auto-rollback initiation
+VERIFY = (
+    "import py_compile, json\n"
+    "try:\n"
+    "    py_compile.compile('auth.py', doraise=True)\n"
+    "    print(json.dumps({'status': 'pass'}))\n"
+    "except py_compile.PyCompileError:\n"
+    "    print(json.dumps({'status': 'fail'}))\n"
+)
+
+with session("demo", workspace="./demo_workspace", auto_commit=True) as sess:
+    sess.write_file("auth.py", GOOD)
+    sess.write_file("verify.py", VERIFY)
     sess.checkpoint("stable")
 
-    sess.write_file("config.py", risky_change)
     sess.auto_rollback("exception", "test_failure", to="stable",
-                       verifier=Verifier(command="pytest"))
+                        verifier=Verifier(command="python3 verify.py"))
+
+    # simulate an agent mid-tool-call, then a broken write
+    dangling_msg = [{"role": "assistant", "content": "", "tool_calls": [{"id": "1"}]}]
+    sess.on_tool_call(dangling_msg, tool_name="write_file")
+    sess.write_file("auth.py", BROKEN)
+
     try:
-        sess.run_tests()  # PASS: formatted summary; FAIL: RuntimeError + auto-rollback
+        sess.run_tests()  # fails -> auto_rollback fires here, no manual call
     except RuntimeError:
-        pass  # already rolled back to "stable"
+        pass
+
+    restored = sess.get_messages()
+    print("File reverted:", sess.read_file("auth.py") == GOOD)
+    print("Dangling msg dropped:", not any(m.get("tool_calls") for m in restored))
+    print("Agent gets a resume cue:", restored)
 ```
 
 ### Sync conversation memory
