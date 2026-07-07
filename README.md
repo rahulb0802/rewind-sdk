@@ -28,18 +28,30 @@ Rewind addresses both by tying filesystem snapshots and conversation history to 
 Rewind boots an Alpine Linux Docker container, mounts your host workspace into it **read-only**, and gives the agent a writable OverlayFS layer to work in. Checkpointing is a layer-stacking operation (fast, with no file copying), and rollback discards layers back to a chosen point. Separately, it keeps a parallel in-memory record of your conversation messages, snapshotted at the same checkpoint label, so a filesystem rollback and a memory rollback always happen together via one call.
 
 ```python
-from rewind_sdk import session
+from rewind_sdk import session, Verifier
 
-with session("agent", workspace="./src", auto_commit=True) as sess:
+GOOD = "def authenticate(user, pw):\n    return user == 'admin' and pw == 'correct-horse'\n"
+BROKEN = "def authenticate(user, pw):\n    return user == 'admin' and pw ==\n"  # syntax error
+
+with session("demo", workspace="./demo_workspace", auto_commit=True) as sess:
+    sess.write_file("auth.py", GOOD)
     sess.checkpoint("stable")
 
-    sess.write_file("auth.py", new_implementation)
+    sess.auto_rollback("exception", "test_failure", to="stable",
+                        verifier=Verifier(command="python3 -m py_compile auth.py"))
+
+    # simulate an agent mid-tool-call, then a broken write
+    dangling_msg = [{"role": "assistant", "content": "", "tool_calls": [{"id": "1"}]}]
+    sess.on_tool_call(dangling_msg, tool_name="write_file")
+    sess.write_file("auth.py", BROKEN)
+
     try:
-        sess.run_tests("pytest")
+        sess.run_tests()  # fails -> auto_rollback fires here, no manual call
     except RuntimeError:
-        sess.rollback("stable")
-    # If this block exits without raising and auto_commit=True,
-    # the workspace is streamed back to ./src on the host.
+        pass
+
+    print("File reverted:", sess.read_file("auth.py") == GOOD)      # True
+    print("Dangling msg dropped:", sess.get_messages() == [])       # True
 ```
 
 **Filesystem and message history are restored together, with one call.** This is the mechanic everything in this SDK is built around, making that pairing convenient.
