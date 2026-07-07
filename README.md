@@ -12,6 +12,14 @@
 
 ---
 
+## Quick Links
+- [View Quick Start Demo](#quick-start)
+- [LangGraph Integration Example](#langgraph-integration)
+- [View Known Limitations](#known-limitations)
+- [API Reference](#api-reference)
+
+---
+
 ## The Problem
 
 Agents that write and execute code need somewhere to do that safely, and a way to recover when they fail. Two specific failures keep coming up:
@@ -89,7 +97,7 @@ pip install "rewind-sdk[langgraph]"
 
 ```bash
 git clone https://github.com/rahulb0802/rewind-sdk.git
-cd rewind_sdk
+cd rewind-sdk
 pip install -e .
 ```
 
