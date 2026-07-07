@@ -96,7 +96,7 @@ pip install -e .
 ---
 
 ## Quick Start
-
+Copy and paste this example to watch the rollback execute live on your machine.
 ```python
 from rewind_sdk import session, Verifier
 
