@@ -104,7 +104,7 @@ pip install -e .
 ---
 
 ## Quick Start
-Copy and paste this example to watch the rollback execute live on your machine.
+Copy and paste this example to watch the rollback execute live on your machine. On first run, Docker needs to pull the base Alpine image, which can take 10–30 seconds with no visible output; this is normal.
 ```python
 from rewind_sdk import session, Verifier
 
@@ -122,6 +122,7 @@ VERIFY = (
 )
 
 with session("demo", workspace="./demo_workspace", auto_commit=True) as sess:
+    print("Sandbox started, pulling image on first run if needed...")
     sess.write_file("auth.py", GOOD)
     sess.write_file("verify.py", VERIFY)
     sess.checkpoint("stable")
