@@ -24,10 +24,11 @@
 
 Agents that write and execute code need somewhere to do that safely, and a way to recover when they fail. Two specific failures keep coming up:
 
-- **Filesystem damage.** An agent edits files, runs a destructive command, or otherwise leaves a workspace in a half-broken state with no way back except git or a manual backup.
-- **Schema corruption after a crash.** When an agent's tool call fails mid-execution, you're often left with an assistant message requesting a tool call that has no matching tool response. Strict providers (Gemini, OpenAI) will reject that message history outright on the next call, even though the failure already happened and you just want to continue.
+- **State that can't be rolled back with git.** An agent's mistakes aren't just bad diffs: a corrupted SQLite file, a half-run DB migration, or a deleted binary asset. There's nothing to revert with version control.
+- **Filesystem and memory drift apart after a manual rollback.** Even if files are snapshotted manually, reverting them doesn't update the agent's belief about what it did. Its next turn reasons against a file that no longer exists.
+- **No reliable signal for whether a change actually worked.** Agents commonly declare success without real verification, or crash mid-test, leaving an ambiguous result.
 
-Rewind addresses both by tying filesystem snapshots and conversation history to the same checkpoint, so rolling back one always rolls back the other.
+Rewind addresses all three by tying filesystem snapshots, conversation history, and a structured verification contract to the same checkpoint.
 
 ---
 
@@ -60,15 +61,15 @@ These are implemented and covered by the test suite or directly traceable in sou
 
 - **OverlayFS checkpoints** — instant, layer-based snapshots of the sandbox filesystem (`engine.py`)
 - **Paired memory rollback** — message history is truncated to match a filesystem checkpoint in one call
-- **Dangling tool-call cleanup** — automatically drops trailing assistant messages that initiated a failed tool call, preventing strict-schema providers from rejecting your history on the next turn
 - **Auto-checkpoint before tool calls** — automatically snapshots state before tool calls via `on_tool_call()` or the `@session.tool` decorator
 - **Auto-rollback mechanisms** — triggers rollbacks inside ``run()``, ``run_tests()``, and invocation workflows on exceptions or test failures
 - **JSON verifier contract** — parses `{"status": "pass"|"fail"|"unknown"}` from stdout, handles retries, and returns structured summaries
 - **Verification ledger** — append-only audit log of verification, escalation, and rollback events; survives `rollback()` calls
 - **Escalation on UNKNOWN** — after retries are exhausted, `mode="interactive"` prompts continue/rollback/stop on stdin; `mode="agent"` halts with `VerificationHaltError` and preserves the container
+- - **LangGraph adapter** — dedicated ``wrap_langraph()`` utility to keep memory in sync with graph states
 - **`@session.tool` decorator** — LangChain-compatible tools with automatic checkpointing, scoped exception rollback, and `RuntimeError` → error-string conversion for the LLM
 - **Two-phase commit to host** — host files are only touched if a session block exits without raising and `auto_commit=True` is set; halt-aware `__exit__` skips commit and optionally preserves the container
-- **LangGraph adapter** — dedicated ``wrap_langraph()`` utility to keep memory in sync with graph states
+- - **Dangling tool-call cleanup** — automatically drops trailing assistant messages that initiated a failed tool call, preventing strict-schema providers from rejecting your history on the next turn
 - **CLI and MCP server** — `rewind_cli.py` and `mcp_server.py` expose session operations including verification ledger history
 
 ---
