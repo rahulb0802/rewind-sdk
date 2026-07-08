@@ -54,21 +54,21 @@ with session("agent", workspace="./src", auto_commit=True) as sess:
 
 ---
 
-## Verified Features
+## Core Capabilities
 
 These are implemented and covered by the test suite or directly traceable in source:
 
 - **OverlayFS checkpoints** — instant, layer-based snapshots of the sandbox filesystem (`engine.py`)
 - **Paired memory rollback** — message history is truncated to match a filesystem checkpoint in one call
-- **Dangling tool-call cleanup** — if the checkpoint point falls right after an assistant message that initiated a tool call, that message is automatically dropped too, so you don't hand a broken message history back to a strict-schema provider
-- **Auto-checkpoint before tool calls** — `on_tool_call()` snapshots state automatically; `@session.tool` injects this for decorated tools
-- **Auto-rollback on exception or test failure** — `auto_rollback("exception", "test_failure", ...)` triggers rollback inside `run()` / `run_tests()` and LangGraph's `invoke`/`stream`; per-tool scoping via `rollback_on_error`
-- **JSON verifier contract** — `run_tests()` runs a verifier in-container, parses `{"status": "pass"|"fail"|"unknown"}` from stdout, retries on UNKNOWN, and returns a human-readable summary on PASS
+- **Dangling tool-call cleanup** — automatically drops trailing assistant messages that initiated a failed tool call, preventing strict-schema providers from rejecting your history on the next turn
+- **Auto-checkpoint before tool calls** — automatically snapshots state before tool calls via `on_tool_call()` or the `@session.tool` decorator
+- **Auto-rollback mechanisms** — triggers rollbacks inside ``run()``, ``run_tests()``, and invocation workflows on exceptions or test failures
+- **JSON verifier contract** — parses `{"status": "pass"|"fail"|"unknown"}` from stdout, handles retries, and returns structured summaries
 - **Verification ledger** — append-only audit log of verification, escalation, and rollback events; survives `rollback()` calls
 - **Escalation on UNKNOWN** — after retries are exhausted, `mode="interactive"` prompts continue/rollback/stop on stdin; `mode="agent"` halts with `VerificationHaltError` and preserves the container
 - **`@session.tool` decorator** — LangChain-compatible tools with automatic checkpointing, scoped exception rollback, and `RuntimeError` → error-string conversion for the LLM
 - **Two-phase commit to host** — host files are only touched if a session block exits without raising and `auto_commit=True` is set; halt-aware `__exit__` skips commit and optionally preserves the container
-- **LangGraph adapter** — `wrap_langgraph()` keeps memory synced, re-raises `VerificationHaltError`, and triggers rollback on other unhandled exceptions
+- **LangGraph adapter** — dedicated ``wrap_langraph()`` utility to keep memory in sync with graph states
 - **CLI and MCP server** — `rewind_cli.py` and `mcp_server.py` expose session operations including verification ledger history
 
 ---
