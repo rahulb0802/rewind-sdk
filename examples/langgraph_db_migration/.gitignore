@@ -1,0 +1,5 @@
+.env
+live_workspace/
+seed_workspace/shop.db
+__pycache__/
+*.pyc
