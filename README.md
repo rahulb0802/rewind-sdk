@@ -22,9 +22,9 @@
 
 ## The Problem
 
-Agents that write and execute code need somewhere to do that safely, and a way to recover when they fail. Two specific failures keep coming up:
+Agents that write and execute code need somewhere to do that safely, and a way to recover when they fail. There are three specific instances of this:
 
-- **State that can't be rolled back with git.** An agent's mistakes aren't just bad diffs: a corrupted SQLite file, a half-run DB migration, or a deleted binary asset. There's nothing to revert with version control.
+- **State that can't be rolled back with git.** An agent's mistakes aren't just bad diffs: a corrupted SQLite file, a half-run DB migration, or a deleted binary asset. There's nothing to revert, even with version control.
 - **Filesystem and memory drift apart after a manual rollback.** Even if files are snapshotted manually, reverting them doesn't update the agent's belief about what it did. Its next turn reasons against a file that no longer exists.
 - **No reliable signal for whether a change actually worked.** Agents commonly declare success without real verification, or crash mid-test, leaving an ambiguous result.
 
@@ -66,10 +66,10 @@ These are implemented and covered by the test suite or directly traceable in sou
 - **JSON verifier contract** — parses `{"status": "pass"|"fail"|"unknown"}` from stdout, handles retries, and returns structured summaries
 - **Verification ledger** — append-only audit log of verification, escalation, and rollback events; survives `rollback()` calls
 - **Escalation on UNKNOWN** — after retries are exhausted, `mode="interactive"` prompts continue/rollback/stop on stdin; `mode="agent"` halts with `VerificationHaltError` and preserves the container
-- - **LangGraph adapter** — dedicated ``wrap_langraph()`` utility to keep memory in sync with graph states
+- **LangGraph adapter** — dedicated ``wrap_langraph()`` utility to keep memory in sync with graph states
 - **`@session.tool` decorator** — LangChain-compatible tools with automatic checkpointing, scoped exception rollback, and `RuntimeError` → error-string conversion for the LLM
 - **Two-phase commit to host** — host files are only touched if a session block exits without raising and `auto_commit=True` is set; halt-aware `__exit__` skips commit and optionally preserves the container
-- - **Dangling tool-call cleanup** — automatically drops trailing assistant messages that initiated a failed tool call, preventing strict-schema providers from rejecting your history on the next turn
+- **Dangling tool-call cleanup** — automatically drops trailing assistant messages that initiated a failed tool call, preventing strict-schema providers from rejecting your history on the next turn
 - **CLI and MCP server** — `rewind_cli.py` and `mcp_server.py` expose session operations including verification ledger history
 
 ---
